@@ -7,7 +7,6 @@ function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
 export default function Spectator() {
   const [phase, setPhase] = useState("input"); // input | syncing | sealed | revealing | complete
   const [text, setText] = useState("");
-  const [consent, setConsent] = useState(false);
   const [status, setStatus] = useState("");
 
   const [entryId, setEntryId] = useState(() => localStorage.getItem("hivemind_entry_id") || "");
@@ -32,7 +31,6 @@ export default function Spectator() {
   async function submit() {
     setStatus("");
     if (!trimmed) return setStatus("Enter a word, name, or phrase.");
-    if (!consent) return setStatus("Please acknowledge the notice.");
 
     setPhase("syncing");
 
@@ -165,18 +163,7 @@ export default function Spectator() {
                 <div className="chipV">Private</div>
               </div>
             </div>
-
-            <label className="consent">
-              <input
-                type="checkbox"
-                checked={consent}
-                onChange={(e) => setConsent(e.target.checked)}
-              />
-              <span>
-                Notice: check this box only when your ready.
-              </span>
-            </label>
-
+            
             <button className="btn" onClick={submit}>
               Confirm &amp; Seal
             </button>
