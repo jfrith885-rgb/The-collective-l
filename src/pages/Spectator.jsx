@@ -173,7 +173,7 @@ export default function Spectator() {
                 onChange={(e) => setConsent(e.target.checked)}
               />
               <span>
-                Notice: your entry will be transmitted to the operator for this demonstration.
+                Notice: check this box only when your ready.
               </span>
             </label>
 
