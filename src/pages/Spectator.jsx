@@ -1,61 +1,170 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabaseClient";
+import { getShowId, makeClientToken, sleep } from "../utils";
 
-function genCode() {
-  return Math.floor(1000 + Math.random() * 9000).toString();
-}
+function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
 
 export default function Spectator() {
-  const [sessionCode] = useState(genCode);
+  const [phase, setPhase] = useState("input"); // input | syncing | sealed | revealing | complete
   const [text, setText] = useState("");
-  const [locked, setLocked] = useState(false);
   const [consent, setConsent] = useState(false);
   const [status, setStatus] = useState("");
 
+  const [entryId, setEntryId] = useState(() => localStorage.getItem("hivemind_entry_id") || "");
+  const [clientToken, setClientToken] = useState(() => localStorage.getItem("hivemind_client_token") || "");
+
+  const [revealed, setRevealed] = useState("");
+  const [cooldownMs] = useState(110);
+
+  const showId = useMemo(() => getShowId(), []);
   const trimmed = useMemo(() => text.trim(), [text]);
 
-  async function onLock() {
+  useEffect(() => {
+    const saved = localStorage.getItem("hivemind_last_text");
+    if (!text && saved) setText(saved);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("hivemind_last_text", text);
+  }, [text]);
+
+  async function submit() {
     setStatus("");
-    if (!trimmed) return setStatus("Type something first.");
-    if (!consent) return setStatus("Please check the consent box.");
+    if (!trimmed) return setStatus("Enter a word, name, or phrase.");
+    if (!consent) return setStatus("Please acknowledge the notice.");
 
-    const { error } = await supabase.from("entries").insert({
-      session_code: sessionCode,
-      entry_text: trimmed,
-    });
+    setPhase("syncing");
 
-    if (error) return setStatus("Could not submit. Try again.");
-    setLocked(true);
-    setStatus("Locked in. Put your phone face-down.");
+    const tok = clientToken || makeClientToken();
+    setClientToken(tok);
+    localStorage.setItem("hivemind_client_token", tok);
+
+    const { data, error } = await supabase
+      .from("entries")
+      .insert({
+        show_id: showId,
+        entry_text: trimmed,
+        client_token: tok,
+      })
+      .select("id")
+      .single();
+
+    if (error || !data?.id) {
+      setPhase("input");
+      return setStatus("Transmission failed. Try again.");
+    }
+
+    setEntryId(data.id);
+    localStorage.setItem("hivemind_entry_id", data.id);
+
+    setPhase("sealed");
+    setStatus("Sealed. Place the device face-down.");
   }
+
+  // Poll reveal status after sealed
+  useEffect(() => {
+    if (phase !== "sealed") return;
+    if (!entryId || !clientToken) return;
+
+    let alive = true;
+
+    const tick = async () => {
+      try {
+        const r = await fetch(
+          `/.netlify/functions/get-entry-status?id=${encodeURIComponent(entryId)}&t=${encodeURIComponent(clientToken)}`
+        );
+        if (!r.ok) throw new Error("bad");
+        const j = await r.json();
+        if (!alive) return;
+        if (j?.reveal_ready) setPhase("revealing");
+      } catch {}
+    };
+
+    tick();
+    const id = setInterval(tick, 800);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [phase, entryId, clientToken]);
+
+  // Letter-by-letter reveal animation
+  useEffect(() => {
+    if (phase !== "revealing") return;
+    const target = trimmed || text.trim();
+
+    let alive = true;
+    (async () => {
+      setRevealed("");
+      await sleep(500);
+      for (let i = 0; i < target.length; i++) {
+        if (!alive) return;
+        setRevealed((prev) => prev + target[i]);
+
+        const base = cooldownMs;
+        const prog = i / Math.max(1, target.length - 1);
+        const shape = 0.6 + 0.9 * Math.abs(prog - 0.5) * 2;
+        const jitter = Math.floor((Math.random() - 0.5) * 35);
+        await sleep(clamp(Math.floor(base * shape) + jitter, 65, 260));
+      }
+      await sleep(350);
+      if (!alive) return;
+      setPhase("complete");
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [phase, cooldownMs, trimmed, text]);
 
   return (
     <div className="wrap">
       <header className="top">
-        <div>
-          <h1>Focus Calibration</h1>
-          <p className="sub">A short attention &amp; recall test.</p>
+        <div className="brand">
+          <div className="sigil" aria-hidden="true"></div>
+          <div>
+            <h1>The Hive Mind</h1>
+            <p className="sub">Neural Consensus Interface</p>
+          </div>
         </div>
-        <a className="tinyLink" href="/performer">Performer</a>
       </header>
 
       <div className="card">
-        <div className="row">
-          <span className="badge">Session</span>
-          <span className="mono">{sessionCode}</span>
-        </div>
+        <div className="glow" aria-hidden="true"></div>
 
-        {!locked ? (
+        {phase === "input" && (
           <>
-            <label className="label">Type any word or phrase</label>
+            <div className="sectionTitle">Intake</div>
+
+            <label className="label">Type any word, name, or phrase</label>
             <textarea
               className="input"
               rows={3}
               value={text}
               onChange={(e) => setText(e.target.value)}
               placeholder="Anything at all…"
-              maxLength={140}
+              maxLength={180}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
             />
+
+            <div className="row2">
+              <div className="chip">
+                <div className="chipK">Signal</div>
+                <div className="chipV">Stable</div>
+              </div>
+              <div className="chip">
+                <div className="chipK">Latency</div>
+                <div className="chipV">&lt; 1s</div>
+              </div>
+              <div className="chip">
+                <div className="chipK">Mode</div>
+                <div className="chipV">Private</div>
+              </div>
+            </div>
 
             <label className="consent">
               <input
@@ -64,28 +173,69 @@ export default function Spectator() {
                 onChange={(e) => setConsent(e.target.checked)}
               />
               <span>
-                I understand my entry will be transmitted to the performer for this demonstration.
+                Notice: your entry will be transmitted to the operator for this demonstration.
               </span>
             </label>
 
-            <button className="btn" onClick={onLock}>Lock it in</button>
+            <button className="btn" onClick={submit}>
+              Confirm &amp; Seal
+            </button>
+
+            <div className="fineprint">
+              Do not explain your choice. Do not edit after confirmation.
+            </div>
           </>
-        ) : (
+        )}
+
+        {phase === "syncing" && (
           <>
+            <div className="sectionTitle">Synchronizing</div>
+            <div className="meter">
+              <div className="bar"></div>
+            </div>
+            <div className="fineprint">Hold still… establishing consensus.</div>
+          </>
+        )}
+
+        {phase === "sealed" && (
+          <>
+            <div className="sectionTitle">Sealed</div>
             <div className="locked">
-              <div className="big">Locked.</div>
+              <div className="big">SEALED</div>
               <div className="small">Do not change your mind.</div>
             </div>
-            <p className="hint">Wait for the performer.</p>
+            <div className="fineprint">
+              Maintain silence. Await instruction.
+            </div>
+          </>
+        )}
+
+        {phase === "revealing" && (
+          <>
+            <div className="sectionTitle">Feedback</div>
+            <div className="revealPanel">
+              <div className="revealLabel">Echo</div>
+              <div className="revealText">{revealed || " "}</div>
+              <div className="revealSub">Do not react.</div>
+            </div>
+          </>
+        )}
+
+        {phase === "complete" && (
+          <>
+            <div className="sectionTitle">Complete</div>
+            <div className="revealPanel">
+              <div className="revealLabel">Echo</div>
+              <div className="revealText">{revealed}</div>
+              <div className="revealSub">Confirmed.</div>
+            </div>
           </>
         )}
 
         {status && <div className="status">{status}</div>}
-      </div>
 
-      <footer className="foot">
-        <span className="muted">Session code is used to match your entry.</span>
-      </footer>
+        <div className="ghost" aria-hidden="true">{showId}</div>
+      </div>
     </div>
   );
 }
