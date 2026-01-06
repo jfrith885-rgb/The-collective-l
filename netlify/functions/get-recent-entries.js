@@ -12,7 +12,7 @@ export default async (req) => {
     q.searchParams.set("select", "id,entry_text,created_at,reveal_ready");
     q.searchParams.set("show_id", `eq.${show}`);
     q.searchParams.set("order", "created_at.desc");
-    q.searchParams.set("limit", "1");
+    q.searchParams.set("limit", "10");
 
     const r = await fetch(q.toString(), {
       headers: { apikey: SERVICE_KEY, authorization: `Bearer ${SERVICE_KEY}` },
@@ -20,7 +20,7 @@ export default async (req) => {
     if (!r.ok) return new Response("Query failed", { status: 500 });
 
     const rows = await r.json();
-    return new Response(JSON.stringify(rows[0] || null), {
+    return new Response(JSON.stringify(rows || []), {
       headers: { "Content-Type": "application/json" },
     });
   } catch {
