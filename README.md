@@ -1,41 +1,49 @@
-# Mindreader Netlify (React + Supabase + Netlify Function)
+# The Hive Mind — Show ID filter + auto-sync + spectator letter-by-letter echo + PWA
 
-## What this is
-- `/` Spectator page: type anything, "Lock it in" (inserts into Supabase)
-- `/performer` Performer console: enter session code, see the latest entry (reads via Netlify Function)
-- Netlify Function uses a Supabase **Service Role Key** so the audience cannot read entries directly.
+## What’s implemented
+- **Show ID filter**: Operator sees only entries for the active Show ID.
+- **Auto-sync**: no session code typing.
+- **Operator console auto-listens**: newest entry is shown as “Latest”.
+- **Spectator branding**: “The Hive Mind”.
+- **Spectator reveal**: once the operator taps “Arm Spectator Reveal”, the spectator’s phone echoes the phrase **letter-by-letter** with cooldowns.
+- **Web app**: PWA (Add to Home Screen).
 
-## Required Supabase table
-Create `entries` with:
-- id uuid pk default gen_random_uuid()
-- session_code text
-- entry_text text
-- created_at timestamp default now()
+## Show ID (how it stays invisible)
+Operator uses a spectator link like:
+`https://yoursite.netlify.app/?h=XXXXXXXXXX`
 
-Enable RLS. Create INSERT policy for anon. Do NOT create SELECT policy for anon.
+The spectator UI never displays the ID — it’s only used for filtering.
 
-## Environment variables (Netlify Site settings -> Environment variables)
-Frontend (build-time):
+## Supabase table
+Run this in Supabase SQL Editor:
+
+```sql
+create table if not exists public.entries (
+  id uuid primary key default gen_random_uuid(),
+  show_id text not null,
+  entry_text text not null,
+  client_token text not null,
+  reveal_ready boolean default false,
+  created_at timestamp with time zone default now()
+);
+
+alter table public.entries enable row level security;
+
+create policy "allow insert"
+on public.entries for insert
+to anon
+with check (true);
+```
+
+Do **NOT** create a SELECT policy for anon users.
+
+## Netlify env vars
+Frontend:
 - VITE_SUPABASE_URL
 - VITE_SUPABASE_ANON_KEY
+Optional:
+- VITE_PERFORMER_PIN
 
-Functions (server-side):
+Functions:
 - SUPABASE_URL
 - SUPABASE_SERVICE_ROLE_KEY
-
-## Deploying on Netlify
-### Recommended (functions supported)
-1. Drag this folder into GitHub (or upload as a repo)
-2. In Netlify: "Add new site" -> "Import from Git"
-3. Build command: `npm run build`
-4. Publish directory: `dist`
-5. Functions directory: `netlify/functions` (also set in netlify.toml)
-
-### About Drag & Drop deploy
-Netlify's manual drag-and-drop deploy is for **static sites only**.
-Serverless functions generally require a proper build/deploy pipeline.
-So use the Git-based deploy (recommended) if you want `/performer` to work.
-
-## Local dev
-1. `npm install`
-2. `npm run dev`
